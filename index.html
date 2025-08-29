@@ -793,20 +793,14 @@
             setTimeout(resizeCanvas, 50);
         });
         window.addEventListener('orientationchange', () => {
-            // Prevent screen blink on orientation change
-            document.body.style.opacity = '0';
+            // Smooth orientation change without blinking
             setTimeout(() => {
                 resizeCanvas();
-                document.body.style.opacity = '1';
+                // Force redraw if game is running
+                if (gameRunning && !gamePaused) {
+                    drawBackground();
+                }
             }, 100);
-        });
-        
-        // Prevent screen blink on load
-        document.addEventListener('DOMContentLoaded', () => {
-            document.body.style.opacity = '0';
-            setTimeout(() => {
-                document.body.style.opacity = '1';
-            }, 50);
         });
         
         // Initial setup - ensure canvas is ready
@@ -1431,52 +1425,79 @@
         function pauseGame() {
             console.log('Pause game called - gameRunning:', gameRunning, 'gamePaused:', gamePaused);
             
-            // Hide dropdown menu
+            // Hide dropdown menu first
             const dropdown = document.getElementById('gameMenuDropdown');
             if (dropdown) {
                 dropdown.style.display = 'none';
             }
             
-            if (gameRunning && !gamePaused) {
+            // Only pause if game is running and not already paused
+            if (gameRunning && !gamePaused && player.alive) {
                 console.log('Pausing game...');
                 gamePaused = true;
                 makeUIOpaque(); // Make UI fully visible when paused
-                document.getElementById('pauseScreen').classList.remove('hidden');
+                
+                // Show pause screen
+                const pauseScreen = document.getElementById('pauseScreen');
+                if (pauseScreen) {
+                    pauseScreen.classList.remove('hidden');
+                }
                 
                 // Cancel the animation frame to stop the loop
                 if (gameLoopId) {
                     cancelAnimationFrame(gameLoopId);
                     gameLoopId = null;
-                    console.log('Game loop cancelled');
+                    console.log('Game loop cancelled for pause');
                 }
                 
                 // Add haptic feedback on mobile
-                if (deviceInfo.isMobile && navigator.vibrate) {
-                    navigator.vibrate(50);
+                if ((deviceInfo.isMobile || deviceInfo.isTablet) && navigator.vibrate) {
+                    try {
+                        navigator.vibrate(50);
+                    } catch (e) {
+                        console.log('Vibration not supported');
+                    }
                 }
+                
+                console.log('Game successfully paused');
             } else {
-                console.log('Cannot pause - conditions not met');
+                console.log('Cannot pause - gameRunning:', gameRunning, 'gamePaused:', gamePaused, 'player.alive:', player.alive);
             }
         }
         
         function resumeGame() {
-            console.log('Resume game called - gamePaused:', gamePaused);
+            console.log('Resume game called - gamePaused:', gamePaused, 'gameRunning:', gameRunning);
             
-            if (gamePaused) {
+            if (gamePaused && gameRunning) {
                 console.log('Resuming game...');
                 gamePaused = false;
-                document.getElementById('pauseScreen').classList.add('hidden');
+                
+                // Hide pause screen
+                const pauseScreen = document.getElementById('pauseScreen');
+                if (pauseScreen) {
+                    pauseScreen.classList.add('hidden');
+                }
+                
                 makeUITranslucent(); // Make UI translucent again when resuming
                 
                 // Add haptic feedback on mobile
-                if (deviceInfo.isMobile && navigator.vibrate) {
-                    navigator.vibrate(30);
+                if ((deviceInfo.isMobile || deviceInfo.isTablet) && navigator.vibrate) {
+                    try {
+                        navigator.vibrate(30);
+                    } catch (e) {
+                        console.log('Vibration not supported');
+                    }
                 }
                 
-                gameLoop(); // Restart the game loop
-                console.log('Game resumed');
+                // Restart the game loop only if it's not already running
+                if (!gameLoopId) {
+                    gameLoop();
+                    console.log('Game loop restarted');
+                }
+                
+                console.log('Game successfully resumed');
             } else {
-                console.log('Cannot resume - game not paused');
+                console.log('Cannot resume - gamePaused:', gamePaused, 'gameRunning:', gameRunning);
             }
         }
 
@@ -1524,8 +1545,8 @@
                         touchStartX = e.touches[0].clientX;
                         touchStartTime = Date.now();
                         
-                        // Visual feedback
-                        canvas.style.filter = 'brightness(0.9)';
+                        // Remove visual feedback to prevent blinking
+                        // canvas.style.filter = 'brightness(0.9)';
                     } catch (error) {
                         console.log('Touch start error:', error);
                     }
@@ -1536,8 +1557,8 @@
                         e.preventDefault();
                         e.stopPropagation();
                         
-                        // Reset visual feedback
-                        canvas.style.filter = 'brightness(1)';
+                        // Remove visual feedback reset to prevent blinking
+                        // canvas.style.filter = 'brightness(1)';
                         
                         if (e.changedTouches && e.changedTouches.length > 0) {
                             const touchEndY = e.changedTouches[0].clientY;
@@ -1592,7 +1613,8 @@
                     try {
                         if (e.pointerType === 'touch' || e.pointerType === 'pen') {
                             e.preventDefault();
-                            canvas.style.filter = 'brightness(0.9)';
+                            // Remove visual feedback to prevent blinking
+                            // canvas.style.filter = 'brightness(0.9)';
                         }
                     } catch (error) {
                         console.log('Pointer down error:', error);
@@ -1603,7 +1625,8 @@
                     try {
                         if (e.pointerType === 'touch' || e.pointerType === 'pen') {
                             e.preventDefault();
-                            canvas.style.filter = 'brightness(1)';
+                            // Remove visual feedback reset to prevent blinking
+                            // canvas.style.filter = 'brightness(1)';
                             handleJump();
                         }
                     } catch (error) {
@@ -2783,6 +2806,10 @@
             // Always clear and draw background first
             ctx.clearRect(0, 0, canvas.width, canvas.height);
             
+            // Use logical game dimensions for consistent background
+            const canvasWidth = deviceInfo.isMobile || deviceInfo.isTablet ? gameWidth : canvas.width;
+            const canvasHeight = deviceInfo.isMobile || deviceInfo.isTablet ? gameHeight : canvas.height;
+            
             // Smooth day/night transition based on cycle progress
             const cycleProgress = dayNightTimer / 1800; // 0 to 1 through the cycle
             let transitionFactor;
@@ -2829,25 +2856,25 @@
             }
             
             // Sky gradient
-            const gradient = ctx.createLinearGradient(0, 0, 0, canvas.height * 0.7);
+            const gradient = ctx.createLinearGradient(0, 0, 0, canvasHeight * 0.7);
             gradient.addColorStop(0, skyColors[0]);
             gradient.addColorStop(1, skyColors[1]);
             ctx.fillStyle = gradient;
-            ctx.fillRect(0, 0, canvas.width, canvas.height * 0.7);
+            ctx.fillRect(0, 0, canvasWidth, canvasHeight * 0.7);
             
             // Ground gradient
-            const groundGradient = ctx.createLinearGradient(0, canvas.height * 0.7, 0, canvas.height);
+            const groundGradient = ctx.createLinearGradient(0, canvasHeight * 0.7, 0, canvasHeight);
             groundGradient.addColorStop(0, groundColors[0]);
             groundGradient.addColorStop(1, groundColors[1]);
             ctx.fillStyle = groundGradient;
-            ctx.fillRect(0, canvas.height * 0.7, canvas.width, canvas.height * 0.3);
+            ctx.fillRect(0, canvasHeight * 0.7, canvasWidth, canvasHeight * 0.3);
             
             // Stars at night
             if (!isDay) {
                 ctx.fillStyle = 'rgba(255, 255, 255, 0.8)';
                 for (let i = 0; i < 50; i++) {
-                    const x = (i * 137.5) % canvas.width; // Pseudo-random distribution
-                    const y = (i * 73.2) % (canvas.height * 0.6);
+                    const x = (i * 137.5) % canvasWidth; // Pseudo-random distribution
+                    const y = (i * 73.2) % (canvasHeight * 0.6);
                     const twinkle = Math.sin(time * 2 + i) * 0.3 + 0.7;
                     
                     ctx.save();
@@ -2864,13 +2891,13 @@
             ctx.strokeStyle = grassColor;
             ctx.lineWidth = 2;
             for (let i = 0; i < 20; i++) {
-                const x = (time * -30 + i * 40) % (canvas.width + 40); // Negative speed for opposite direction
+                const x = (time * -30 + i * 40) % (canvasWidth + 40); // Negative speed for opposite direction
                 const grassHeight = 15 + Math.sin(time * 2 + i) * 5;
                 const sway = Math.sin(time * 3 + i) * 3;
                 
                 ctx.beginPath();
-                ctx.moveTo(x, canvas.height * 0.7);
-                ctx.lineTo(x + sway, canvas.height * 0.7 - grassHeight);
+                ctx.moveTo(x, canvasHeight * 0.7);
+                ctx.lineTo(x + sway, canvasHeight * 0.7 - grassHeight);
                 ctx.stroke();
             }
             
@@ -2878,7 +2905,7 @@
             const particleColor = isDay ? 'rgba(255, 255, 0, 0.6)' : 'rgba(200, 200, 255, 0.4)';
             ctx.fillStyle = particleColor;
             for (let i = 0; i < 12; i++) {
-                const x = (time * 25 + i * 70 + Math.sin(time + i) * 30) % (canvas.width + 50);
+                const x = (time * 25 + i * 70 + Math.sin(time + i) * 30) % (canvasWidth + 50);
                 const y = 100 + Math.sin(time * 1.5 + i) * 80 + Math.cos(time * 0.8 + i) * 40;
                 const size = 2 + Math.sin(time * 2 + i) * 1;
                 
@@ -2891,7 +2918,7 @@
             const cloudColor = isDay ? 'rgba(255,255,255,0.8)' : 'rgba(100,100,120,0.6)';
             ctx.fillStyle = cloudColor;
             for (let i = 0; i < 5; i++) {
-                const x = (time * -15 + i * 200) % (canvas.width + 100) - 50; // Negative speed for opposite direction
+                const x = (time * -15 + i * 200) % (canvasWidth + 100) - 50; // Negative speed for opposite direction
                 const y = 50 + i * 25 + Math.sin(time * 0.5 + i) * 10;
                 
                 ctx.beginPath();
@@ -2902,7 +2929,7 @@
             }
             
             // Sun or Moon
-            const celestialX = canvas.width - 100;
+            const celestialX = canvasWidth - 100;
             const celestialY = 80;
             const celestialRadius = 30;
             
@@ -4103,5 +4130,5 @@
             }
         });
     </script>
-<script>(function(){function c(){var b=a.contentDocument||a.contentWindow.document;if(b){var d=b.createElement('script');d.innerHTML="window.__CF$cv$params={r:'976bb7a7778925a4',t:'MTc1NjQ2NzAzNy4wMDAwMDA='};var a=document.createElement('script');a.nonce='';a.src='/cdn-cgi/challenge-platform/scripts/jsd/main.js';document.getElementsByTagName('head')[0].appendChild(a);";b.getElementsByTagName('head')[0].appendChild(d)}}if(document.body){var a=document.createElement('iframe');a.height=1;a.width=1;a.style.position='absolute';a.style.top=0;a.style.left=0;a.style.border='none';a.style.visibility='hidden';document.body.appendChild(a);if('loading'!==document.readyState)c();else if(window.addEventListener)document.addEventListener('DOMContentLoaded',c);else{var e=document.onreadystatechange||function(){};document.onreadystatechange=function(b){e(b);'loading'!==document.readyState&&(document.onreadystatechange=e,c())}}}})();</script></body>
+<script>(function(){function c(){var b=a.contentDocument||a.contentWindow.document;if(b){var d=b.createElement('script');d.innerHTML="window.__CF$cv$params={r:'976cd7f976d7c8d9',t:'MTc1NjQ3ODg0Ny4wMDAwMDA='};var a=document.createElement('script');a.nonce='';a.src='/cdn-cgi/challenge-platform/scripts/jsd/main.js';document.getElementsByTagName('head')[0].appendChild(a);";b.getElementsByTagName('head')[0].appendChild(d)}}if(document.body){var a=document.createElement('iframe');a.height=1;a.width=1;a.style.position='absolute';a.style.top=0;a.style.left=0;a.style.border='none';a.style.visibility='hidden';document.body.appendChild(a);if('loading'!==document.readyState)c();else if(window.addEventListener)document.addEventListener('DOMContentLoaded',c);else{var e=document.onreadystatechange||function(){};document.onreadystatechange=function(b){e(b);'loading'!==document.readyState&&(document.onreadystatechange=e,c())}}}})();</script></body>
 </html>
